@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Button, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 export default function LoginScreen() {
@@ -12,9 +12,13 @@ export default function LoginScreen() {
     navigation.navigate('(pages)/Home/index');
   };
 
+  const navigateToSignUp = () => {
+    navigation.navigate('SignUp'); // Navigate to SignUp screen
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome Back!</Text>
+      <Text style={styles.title}>Welcome!!!</Text>
       <TextInput
         style={styles.input}
         value={email}
@@ -33,8 +37,8 @@ export default function LoginScreen() {
         placeholderTextColor="#aaa"
       />
 
-      <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-        <Text style={styles.buttonText}>Login</Text>
+      <TouchableOpacity style={styles.signupButton} onPress={navigateToSignUp}>
+        <Text style={styles.signupButtonText}>Sign Up</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.forgotPasswordButton}>
@@ -74,8 +78,22 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: 'center',
+    marginBottom: 10,
   },
   buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  signupButton: {
+    width: '100%',
+    backgroundColor: '#28a745',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  signupButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
