@@ -1,19 +1,43 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+} from "react-native";
+import { router } from "expo-router";
+import { FIREBASE_AUTH } from "@/firebase"; // Adjust the import path as needed
+import { signInWithEmailAndPassword } from "firebase/auth";
 
 export default function LoginScreen() {
-  const navigation = useNavigation();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  const handleLogin = () => {
-    // For simplicity, we directly navigate to HomeScreen without authentication
-    navigation.navigate('(pages)/Home/index');
+  const handleLogin = async () => {
+    try {
+      const userCredential = await signInWithEmailAndPassword(
+        FIREBASE_AUTH,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      // Navigate to HomeScreen
+      router.navigate("Home");
+    } catch (error: any) {
+      const errorCode = error.code;
+      const errorMessage = error.message;
+      console.error(errorCode, errorMessage);
+
+      // Show error message in a popup
+      Alert.alert("Login Error", errorMessage);
+    }
   };
 
   const navigateToSignUp = () => {
-    navigation.navigate('SignUp'); // Navigate to SignUp screen
+    router.navigate("SignUp");
   };
 
   return (
@@ -44,8 +68,6 @@ export default function LoginScreen() {
       <TouchableOpacity style={styles.signupButton} onPress={navigateToSignUp}>
         <Text style={styles.signupButtonText}>Sign Up</Text>
       </TouchableOpacity>
-
-    
     </View>
   );
 }
@@ -53,58 +75,58 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 20,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 20,
   },
   input: {
-    width: '100%',
+    width: "100%",
     height: 50,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: "#ccc",
     borderRadius: 8,
     paddingHorizontal: 15,
     marginBottom: 20,
     fontSize: 16,
-    color: '#333',
+    color: "#333",
   },
   loginButton: {
-    width: '100%',
-    backgroundColor: '#007bff',
+    width: "100%",
+    backgroundColor: "#007bff",
     borderRadius: 8,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 10,
   },
   buttonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   signupButton: {
-    width: '100%',
-    backgroundColor: '#28a745',
+    width: "100%",
+    backgroundColor: "#28a745",
     borderRadius: 8,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 10,
   },
   signupButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   forgotPasswordButton: {
     marginTop: 10,
   },
   forgotPasswordText: {
-    color: '#007bff',
+    color: "#007bff",
     fontSize: 16,
   },
 });

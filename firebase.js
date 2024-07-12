@@ -1,20 +1,18 @@
-import firebase from 'firebase/app';
-import 'firebase/auth';
-import 'firebase/firestore';
+import firebase, { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_AUTH_DOMAIN',
-  projectId: 'YOUR_PROJECT_ID',
-  storageBucket: 'YOUR_STORAGE_BUCKET',
-  messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: "AIzaSyAooeCIvvo4nQErfB13jwUVjEHWci3Dluk",
+  authDomain: "tutter-19d25.firebaseapp.com",
+  projectId: "tutter-19d25",
+  storageBucket: "tutter-19d25.appspot.com",
+  messagingSenderId: "959546339096",
+  appId: "1:959546339096:web:819241628f0d72d449f86d",
 };
 
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
 
-export const auth = firebase.auth();
-export const firestore = firebase.firestore();
+export const FIREBASE_APP = initializeApp(firebaseConfig);
+export const FIREBASE_AUTH = getAuth(FIREBASE_APP);
+export const FIREBASE_DB = getFirestore(FIREBASE_APP);
 
