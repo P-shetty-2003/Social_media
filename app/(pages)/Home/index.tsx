@@ -1,105 +1,264 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image, TextInput, Modal, Alert } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  Modal,
+  TouchableWithoutFeedback,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+
+import firebase from "firebase/app";
+import { FIREBASE_DB, FIREBASE_APP } from "@/firebase";
+import {
+  addDoc,
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  FieldValue,
+  getDoc,
+  getDocs,
+  increment,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+interface Post {
+  id: string;
+  content: string;
+  liked: boolean;
+  likeCount: number;
+  comments: string[];
+}
 
 export default function HomeScreen() {
-  const navigation = useNavigation();
-  const [posts, setPosts] = useState([
-    { id: '1', content: 'Hello World!', imageUrl: null, liked: false, comments: [] },
-    { id: '2', content: 'This is a social media app.', imageUrl: null, liked: false, comments: [] },
-    { id: '3', content: 'I made an app!', imageUrl: null, liked: false, comments: [] },
+  const [posts, setPosts] = useState<Post[]>([
+    {
+      id: "1",
+      content: "Hello World!",
+      liked: false,
+      likeCount: 0,
+      comments: [],
+    },
+    {
+      id: "2",
+      content: "This is a social media app.",
+      liked: false,
+      likeCount: 0,
+      comments: [],
+    },
+    {
+      id: "3",
+      content: "I made an app!",
+      liked: false,
+      likeCount: 0,
+      comments: [],
+    },
   ]);
-  const [newTweet, setNewTweet] = useState('');
+
+  const [newTweet, setNewTweet] = useState("");
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const [showAddPhoto, setShowAddPhoto] = useState(false); // State for showing Add Photo button
-  const [commentText, setCommentText] = useState('');
-  const [selectedPostId, setSelectedPostId] = useState(null); // State to track which post has opened comments
-  const [isProfileModalVisible, setIsProfileModalVisible] = useState(false); // State for profile modal
-  const [profileData, setProfileData] = useState({
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    location: 'New York, USA',
-    interests: 'Programming, Travel',
-    profilePic: '😊', // Default emoji
-  });
+  const [commentText, setCommentText] = useState("");
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const emojis = ['😊', '😎', '🤓', '🤖'];
+  const db = FIREBASE_DB;
+  const postsRef = collection(db, "posts");
 
-  const handleLogout = () => {
-    navigation.navigate('Login');
-  };
+  useEffect(() => {
+    const getPosts = async () => {
+      const postsRef = collection(db, "posts");
+      const q = query(postsRef); // Optional: Add query filters if needed
 
-  const handleToggleLike = (postId) => {
-    setPosts(prevPosts =>
-      prevPosts.map(post =>
-        post.id === postId ? { ...post, liked: !post.liked } : post
-      )
-    );
-  };
+      try {
+        const querySnapshot = await getDocs(q);
+        const fetchedPosts: Post[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data() as Post;
+          fetchedPosts.push(data);
+        });
+        setPosts(fetchedPosts);
+      } catch (error) {
+        console.error("Error fetching posts:", error);
+        // Handle errors appropriately, like showing an error message
+      }
+    };
 
-  const handleAddPost = () => {
-    if (newTweet.trim().length > 0) {
-      const newPost = {
-        id: (posts.length + 1).toString(),
-        content: newTweet,
-        imageUrl: null,
-        liked: false,
-        comments: [],
-      };
-      setPosts(prevPosts => [...prevPosts, newPost]);
-      setNewTweet('');
-      setIsModalVisible(false);
-      setShowAddPhoto(false); // Reset state when modal is closed
+    getPosts();
+  }, [db]);
+
+  const toggleLike = async (postId: string) => {
+    try {
+      await handleToggleLike(postId, posts, setPosts);
+    } catch (error) {
+      console.error("Error toggling like:", error);
+      // Handle error gracefully, e.g., show a toast message or update UI state
     }
   };
 
-  const handleDeletePost = (postId) => {
-    setPosts(prevPosts =>
-      prevPosts.filter(post => post.id !== postId)
-    );
+
+
+  const handleToggleLike = async (
+    postId: string,
+    posts: Post[],
+    setPosts: React.Dispatch<React.SetStateAction<Post[]>>
+  ) => {
+    try {
+      // Query Firestore for the document with matching ID
+      const q = query(collection(db, "posts"), where("id", "==", postId));
+      const querySnapshot = await getDocs(q);
+
+      // Check if document exists and throw error if not
+      if (querySnapshot.empty) {
+        throw new Error("No document found with id: " + postId);
+      }
+
+      // Get the matching document (should be only one assuming unique ID)
+      const doc = querySnapshot.docs[0]; // Assuming unique ID
+      const { liked } = doc.data(); // Destructuring for readability
+
+      // Update 'liked' field using conditional increment
+      const likeChange = liked ? -1 : 1;
+      const postRef = querySnapshot.docs[0].ref;
+
+      await updateDoc(postRef, {
+        liked: increment(likeChange),
+      });
+
+      // Update local state efficiently (optional)
+      setPosts((prevPosts) =>
+        prevPosts.map((post) =>
+          post.id === postId
+            ? { ...post, liked: !liked, likeCount: post.likeCount + likeChange }
+            : post
+        )
+      );
+    } catch (error) {
+      console.error("Error updating like:", error);
+      // Handle errors appropriately, like showing an error message to the user
+    }
   };
 
-  const toggleAddPhoto = () => {
-    setShowAddPhoto(!showAddPhoto);
+
+
+
+  const handleAddPost = async () => {
+    if (newTweet.trim().length > 0) {
+      try {
+        const postsRef = collection(db, "posts");
+
+        const newPostId = doc(postsRef).id; // Generate a unique ID
+
+        const newPost = {
+          id: newPostId,
+          content: newTweet,
+          liked: false,
+          likeCount: 0,
+          comments: [],
+        };
+
+        await addDoc(postsRef, newPost); // Add the new post to Firestore
+
+        setPosts((prevPosts) => [...prevPosts, newPost]);
+        setNewTweet("");
+        setIsModalVisible(false);
+      } catch (error) {
+        console.error("Error adding post:", error);
+        // Handle errors appropriately, like showing an error message to the user
+      }
+    }
   };
 
-  const navigateToProfile = () => {
-    setIsProfileModalVisible(true);
+  const handleDeletePost = async (postId: string) => {
+    try {
+      // Get a reference to the post document
+      const postRef = doc(db, "posts", postId);
+
+      // Delete the post from Firestore
+      await deleteDoc(postRef);
+
+      // Update local state after successful deletion
+      setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
+    } catch (error) {
+      console.error("Error deleting post:", error);
+      // Handle errors appropriately, like showing an error message to the user
+    }
   };
 
-  const renderPost = ({ item }) => (
+  const handleAddComment = async (postId: string) => {
+    if (commentText.trim().length > 0) {
+      try {
+        // Get a reference to the post document
+        const postRef = doc(db, "posts", postId);
+
+        // Check if the post document exists
+        const docSnapshot = await getDoc(postRef);
+        if (!docSnapshot.exists) {
+          console.error("Post not found:", postId);
+          // Handle the case where the post doesn't exist
+          return;
+        }
+
+        // ... rest of your updateDoc code for adding the comment
+      } catch (error) {
+        console.error("Error adding comment:", error);
+        // Handle other errors
+      }
+    }
+  };
+
+  const toggleComments = (postId: string) => {
+    setSelectedPostId((prevId) => (prevId === postId ? null : postId));
+  };
+
+  const toggleMenu = () => {
+    setIsMenuOpen(!isMenuOpen);
+  };
+
+  const handleLogout = () => {
+    // Implement logout logic here
+    setIsMenuOpen(false); // Close the menu after logout
+  };
+
+  const renderPost = ({ item }: { item: Post }) => (
     <View style={styles.post}>
       <Text>{item.content}</Text>
-      {item.imageUrl && (
-        <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
-      )}
       <View style={styles.postActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => handleToggleLike(item.id)}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => toggleLike(item.id)}
+        >
           <Text style={styles.actionButtonText}>
-            {item.liked ? '❤️' : '🤍'}
+            {item.liked ? "❤️" : "🤍"} {item.likeCount}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => setSelectedPostId(item.id)}>
-          <Text style={[styles.actionButtonText, { color: '#007bff' }]}> 💬 </Text>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => toggleComments(item.id)}
+        >
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={24}
+            color="#007bff"
+          />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => handleDeletePost(item.id)}>
-          <Text style={[styles.actionButtonText, { color: 'red' }]}>🗑️</Text>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => handleDeletePost(item.id)}
+        >
+          <Ionicons name="trash-outline" size={24} color="red" />
         </TouchableOpacity>
       </View>
 
       {/* Comments Section */}
       {selectedPostId === item.id && (
         <View style={styles.commentsContainer}>
-          <Text style={styles.commentsHeading}>Comments</Text>
-          <TextInput
-            value={commentText}
-            onChangeText={setCommentText}
-            placeholder="Add a comment..."
-            style={styles.commentInput}
-          />
-          <TouchableOpacity style={styles.commentButton} onPress={() => handleAddComment(item.id)}>
-            <Text style={styles.commentButtonText}>Post</Text>
-          </TouchableOpacity>
           <FlatList
             data={item.comments}
             keyExtractor={(comment, index) => index.toString()}
@@ -109,389 +268,265 @@ export default function HomeScreen() {
               </View>
             )}
           />
+          <TextInput
+            value={commentText}
+            onChangeText={setCommentText}
+            placeholder="Add a comment..."
+            style={styles.commentInput}
+          />
+          <TouchableOpacity
+            style={styles.commentButton}
+            onPress={() => handleAddComment(item.id)}
+          >
+            <Text style={styles.commentButtonText}>Post</Text>
+          </TouchableOpacity>
         </View>
       )}
     </View>
   );
 
-  const handleAddComment = (postId) => {
-    if (commentText.trim().length > 0) {
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId ? { ...post, comments: [...post.comments, commentText] } : post
-        )
-      );
-      setCommentText('');
-    }
-  };
-
-  const handleProfileUpdate = () => {
-    Alert.alert('Profile Updated', 'Your profile information has been updated.');
-    setIsProfileModalVisible(false);
-  };
-
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Nebula - An Anonymous Public Opinion App</Text>
-        <View style={styles.emojiContainer}>
-          {emojis.map(emoji => (
-            <TouchableOpacity
-              key={emoji}
-              style={styles.emojiButton}
-              onPress={() => {}}
-            >
-              <Text style={styles.emoji}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
+    <TouchableWithoutFeedback onPress={() => setIsMenuOpen(false)}>
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.menuButton} onPress={toggleMenu}>
+            <Ionicons name="menu-outline" size={24} color="#ffffff" />
+          </TouchableOpacity>
+          <Text style={styles.headerText}>Nebula</Text>
+          <TouchableOpacity
+            style={styles.profileButton}
+            onPress={() => {
+              /* Handle profile button press */
+            }}
+          >
+            <Ionicons name="person-circle-outline" size={24} color="#ffffff" />
+          </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Posts List */}
-      <FlatList
-        data={posts}
-        keyExtractor={item => item.id}
-        renderItem={renderPost}
-        style={styles.postList}
-        contentContainerStyle={{ paddingBottom: 120 }} // Ensure content doesn't get covered by buttons
-      />
+        {/* Posts List */}
+        <FlatList
+          data={posts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderPost}
+          style={styles.postList}
+          contentContainerStyle={{ paddingBottom: 120 }}
+        />
 
-      {/* Floating Action Button (FAB) */}
-      <TouchableOpacity style={styles.fab} onPress={() => setIsModalVisible(true)}>
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+        {/* Floating Action Button (Post Button) */}
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => setIsModalVisible(true)}
+        >
+          <Ionicons name="add-outline" size={24} color="#ffffff" />
+        </TouchableOpacity>
 
-      {/* Profile Button */}
-      <TouchableOpacity style={styles.profileButton} onPress={navigateToProfile}>
-        <Text style={styles.profileButtonText}>Profile</Text>
-      </TouchableOpacity>
+        {/* Side Menu */}
+        {isMenuOpen && (
+          <View style={styles.sideMenu}>
+            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+              <Ionicons
+                name="log-out-outline"
+                size={24}
+                color="#007bff"
+                style={styles.menuIcon}
+              />
+              <Text style={styles.menuText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-      {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutButtonText}>Logout</Text>
-      </TouchableOpacity>
-
-      {/* Modal for Adding Tweet */}
-      <Modal
-        visible={isModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <TextInput
-              value={newTweet}
-              onChangeText={setNewTweet}
-              placeholder="What's happening?"
-              style={styles.input}
-              multiline
-            />
-            
-            {/* Add Photo Button */}
-            {showAddPhoto && (
-              <TouchableOpacity style={styles.modalButton} onPress={handleAddPhoto}>
-                <Text style={styles.modalButtonText}>Add Photo</Text>
-              </TouchableOpacity>
-            )}
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalButton} onPress={handleAddPost}>
+        {/* Modal for Adding Tweet */}
+        <Modal
+          visible={isModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setIsModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <TextInput
+                value={newTweet}
+                onChangeText={setNewTweet}
+                placeholder="What's happening?"
+                style={styles.input}
+                multiline
+              />
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleAddPost}
+              >
                 <Text style={styles.modalButtonText}>Tweet</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalButton} onPress={() => setIsModalVisible(false)}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={() => setIsModalVisible(false)}
+              >
                 <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </Modal>
-
-      {/* Profile Modal */}
-      <Modal
-        visible={isProfileModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsProfileModalVisible(false)}
-      >
-        <View style={styles.profileModalContainer}>
-          <View style={styles.profileModalContent}>
-            <Text style={styles.profileHeaderText}>Profile</Text>
-            
-            {/* Profile Picture Selection */}
-            <View style={styles.emojiContainer}>
-              {emojis.map(emoji => (
-                <TouchableOpacity
-                  key={emoji}
-                  style={[
-                    styles.emojiButton,
-                    profileData.profilePic === emoji && styles.selectedEmojiButton,
-                  ]}
-                  onPress={() => setProfileData({ ...profileData, profilePic: emoji })}
-                >
-                  <Text style={styles.emoji}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            
-            <TextInput
-              style={styles.profileInput}
-              value={profileData.name}
-              onChangeText={text => setProfileData({ ...profileData, name: text })}
-              placeholder="Name"
-            />
-            <TextInput
-              style={styles.profileInput}
-              value={profileData.email}
-              onChangeText={text => setProfileData({ ...profileData, email: text })}
-              placeholder="Email"
-              keyboardType="email-address"
-            />
-            <TextInput
-              style={styles.profileInput}
-              value={profileData.location}
-              onChangeText={text => setProfileData({ ...profileData, location: text })}
-              placeholder="Location"
-            />
-            <TextInput
-              style={styles.profileInput}
-              value={profileData.interests}
-              onChangeText={text => setProfileData({ ...profileData, interests: text })}
-              placeholder="Interests"
-            />
-            
-            <TouchableOpacity style={styles.profileModalButton} onPress={handleProfileUpdate}>
-              <Text style={styles.profileModalButtonText}>Update</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.profileModalButton} onPress={() => setIsProfileModalVisible(false)}>
-              <Text style={styles.profileModalButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: "#f0f0f0",
   },
   header: {
-    backgroundColor: '#007bff',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#007bff",
     paddingVertical: 20,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    marginTop: 40,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    paddingHorizontal: 10,
+    paddingTop: 40,
   },
-  
   headerText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: "bold",
+    marginLeft: 10, // Add margin for better spacing
+  },
+  profileButton: {
+    padding: 10,
+  },
+  menuButton: {
+    padding: 10,
   },
   postList: {
     flex: 1,
   },
   post: {
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
     padding: 10,
     marginVertical: 5,
     marginHorizontal: 10,
     borderRadius: 5,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 1,
   },
-  postImage: {
-    width: '100%',
-    height: 200,
-    marginTop: 10,
-    borderRadius: 5,
-  },
   postActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
     marginTop: 10,
   },
   actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
     padding: 10,
   },
   actionButtonText: {
     fontSize: 20,
+    marginLeft: 5,
   },
   commentsContainer: {
     marginTop: 10,
   },
-  commentsHeading: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 5,
-  },
   commentInput: {
-    borderColor: '#cccccc',
+    borderColor: "#cccccc",
     borderWidth: 1,
-    borderRadius: 10, // Rounded border radius
+    borderRadius: 10,
     padding: 10,
     marginBottom: 10,
-    width: '80%', // Adjust width as needed
   },
   commentButton: {
-    backgroundColor: '#007bff',
+    backgroundColor: "#007bff",
     padding: 10,
     borderRadius: 5,
-    alignItems: 'center',
-    width: '18%', // Adjust width as needed
+    alignItems: "center",
+    width: "18%",
   },
   commentButtonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
+    color: "#ffffff",
+    fontWeight: "bold",
   },
   comment: {
-    backgroundColor: '#f1f1f1',
+    backgroundColor: "#f1f1f1",
     padding: 10,
     borderRadius: 5,
     marginBottom: 5,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30,
-    backgroundColor: '#007bff',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  fabIcon: {
-    color: '#ffffff',
-    fontSize: 30,
-  },
-  profileButton: {
-    position: 'absolute',
-    bottom: 30,
-    right: 110, // Adjust right position to move next to FAB
-    padding: 10,
-    backgroundColor: '#007bff',
-    borderRadius: 5,
-  },
-  profileButtonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  logoutButton: {
-    position: 'absolute',
-    bottom: 30,
-    left: 30, // Adjust left position to move next to FAB
-    padding: 10,
-    backgroundColor: '#dc3545',
-    borderRadius: 5,
-  },
-  logoutButtonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
   },
   modalContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContent: {
     width: 300,
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
     borderRadius: 5,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 3,
   },
   input: {
-    borderColor: '#cccccc',
+    borderColor: "#cccccc",
     borderWidth: 1,
     borderRadius: 5,
     padding: 10,
     marginBottom: 10,
     maxHeight: 150,
   },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
   modalButton: {
     padding: 10,
   },
   modalButtonText: {
     fontSize: 16,
-    color: '#007bff',
+    color: "#007bff",
   },
-  profileModalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  profileModalContent: {
+  sideMenu: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
     width: 300,
-    backgroundColor: '#ffffff',
-    borderRadius: 5,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    backgroundColor: "#ffffff",
+    borderRightColor: "#007bff",
+    borderRightWidth: 1,
+    zIndex: 1000,
+  },
+  menuItem: {
+    paddingTop: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomColor: "#007bff",
+    borderBottomWidth: 1,
+  },
+  menuIcon: {
+    marginRight: 10,
+  },
+  menuText: {
+    fontSize: 16,
+    color: "#007bff",
+  },
+  fab: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    backgroundColor: "#007bff",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
     elevation: 3,
-  },
-  profileHeaderText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  profileInput: {
-    borderColor: '#cccccc',
-    borderWidth: 1,
-    borderRadius: 5,
-    padding: 10,
-    marginBottom: 10,
-  },
-  profileModalButton: {
-    padding: 10,
-    backgroundColor: '#007bff',
-    borderRadius: 5,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  profileModalButtonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  emojiContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 10,
-  },
-  emojiButton: {
-    padding: 10,
-    borderRadius: 5,
-  },
-  selectedEmojiButton: {
-    backgroundColor: '#007bff',
-  },
-  emoji: {
-    fontSize: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
   },
 });
