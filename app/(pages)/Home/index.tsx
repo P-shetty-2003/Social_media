@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image, TextInput, Modal } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image, TextInput, Modal, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 export default function HomeScreen() {
@@ -15,6 +15,15 @@ export default function HomeScreen() {
   const [commentText, setCommentText] = useState('');
   const [selectedPostId, setSelectedPostId] = useState(null); // State to track which post has opened comments
   const [isProfileModalVisible, setIsProfileModalVisible] = useState(false); // State for profile modal
+  const [profileData, setProfileData] = useState({
+    name: 'John Doe',
+    email: 'john.doe@example.com',
+    location: 'New York, USA',
+    interests: 'Programming, Travel',
+    profilePic: '😊', // Default emoji
+  });
+
+  const emojis = ['😊', '😎', '🤓', '🤖'];
 
   const handleLogout = () => {
     navigation.navigate('Login');
@@ -71,16 +80,17 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => setSelectedPostId(item.id)}>
-          <Text style={[styles.actionButtonText, { color: '#007bff' }]}>Comment</Text>
+          <Text style={[styles.actionButtonText, { color: '#007bff' }]}> 💬 </Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => handleDeletePost(item.id)}>
-          <Text style={[styles.actionButtonText, { color: 'red' }]}>Delete</Text>
+          <Text style={[styles.actionButtonText, { color: 'red' }]}>🗑️</Text>
         </TouchableOpacity>
       </View>
 
       {/* Comments Section */}
       {selectedPostId === item.id && (
         <View style={styles.commentsContainer}>
+          <Text style={styles.commentsHeading}>Comments</Text>
           <TextInput
             value={commentText}
             onChangeText={setCommentText}
@@ -115,11 +125,27 @@ export default function HomeScreen() {
     }
   };
 
+  const handleProfileUpdate = () => {
+    Alert.alert('Profile Updated', 'Your profile information has been updated.');
+    setIsProfileModalVisible(false);
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>Social Media App</Text>
+        <Text style={styles.headerText}>Nebula - An Anonymous Public Opinion App</Text>
+        <View style={styles.emojiContainer}>
+          {emojis.map(emoji => (
+            <TouchableOpacity
+              key={emoji}
+              style={styles.emojiButton}
+              onPress={() => {}}
+            >
+              <Text style={styles.emoji}>{emoji}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {/* Posts List */}
@@ -128,6 +154,7 @@ export default function HomeScreen() {
         keyExtractor={item => item.id}
         renderItem={renderPost}
         style={styles.postList}
+        contentContainerStyle={{ paddingBottom: 120 }} // Ensure content doesn't get covered by buttons
       />
 
       {/* Floating Action Button (FAB) */}
@@ -191,12 +218,52 @@ export default function HomeScreen() {
         <View style={styles.profileModalContainer}>
           <View style={styles.profileModalContent}>
             <Text style={styles.profileHeaderText}>Profile</Text>
-            {/* Add your profile information layout here */}
-            <Text>Name: John Doe</Text>
-            <Text>Email: john.doe@example.com</Text>
-            <Text>Location: New York, USA</Text>
-            <Text>Interests: Programming, Travel</Text>
             
+            {/* Profile Picture Selection */}
+            <View style={styles.emojiContainer}>
+              {emojis.map(emoji => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={[
+                    styles.emojiButton,
+                    profileData.profilePic === emoji && styles.selectedEmojiButton,
+                  ]}
+                  onPress={() => setProfileData({ ...profileData, profilePic: emoji })}
+                >
+                  <Text style={styles.emoji}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <TextInput
+              style={styles.profileInput}
+              value={profileData.name}
+              onChangeText={text => setProfileData({ ...profileData, name: text })}
+              placeholder="Name"
+            />
+            <TextInput
+              style={styles.profileInput}
+              value={profileData.email}
+              onChangeText={text => setProfileData({ ...profileData, email: text })}
+              placeholder="Email"
+              keyboardType="email-address"
+            />
+            <TextInput
+              style={styles.profileInput}
+              value={profileData.location}
+              onChangeText={text => setProfileData({ ...profileData, location: text })}
+              placeholder="Location"
+            />
+            <TextInput
+              style={styles.profileInput}
+              value={profileData.interests}
+              onChangeText={text => setProfileData({ ...profileData, interests: text })}
+              placeholder="Interests"
+            />
+            
+            <TouchableOpacity style={styles.profileModalButton} onPress={handleProfileUpdate}>
+              <Text style={styles.profileModalButtonText}>Update</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.profileModalButton} onPress={() => setIsProfileModalVisible(false)}>
               <Text style={styles.profileModalButtonText}>Close</Text>
             </TouchableOpacity>
@@ -210,181 +277,221 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f0f0f0',
   },
   header: {
-    backgroundColor: '#1da1f2',
-    paddingVertical: 10,
+    backgroundColor: '#007bff',
+    paddingVertical: 20,
     paddingHorizontal: 20,
-    marginBottom: 10,
     alignItems: 'center',
-    marginTop: 20, // Adjusted margin top to push it down
+    marginTop: 40,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
   },
+  
   headerText: {
-    fontSize: 24,
+    color: '#ffffff',
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
   },
   postList: {
-    paddingHorizontal: 20,
+    flex: 1,
   },
   post: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    padding: 20,
-    marginBottom: 20,
+    backgroundColor: '#ffffff',
+    padding: 10,
+    marginVertical: 5,
+    marginHorizontal: 10,
+    borderRadius: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   postImage: {
     width: '100%',
     height: 200,
-    borderRadius: 10,
     marginTop: 10,
+    borderRadius: 5,
   },
   postActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     marginTop: 10,
   },
   actionButton: {
-    backgroundColor: 'transparent',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 5,
+    padding: 10,
   },
   actionButtonText: {
-    fontSize: 18,
+    fontSize: 20,
   },
   commentsContainer: {
     marginTop: 10,
   },
+  commentsHeading: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginBottom: 5,
+  },
   commentInput: {
-    height: 40,
-    borderColor: '#ccc',
+    borderColor: '#cccccc',
     borderWidth: 1,
-    borderRadius: 5,
-    paddingHorizontal: 10,
+    borderRadius: 10, // Rounded border radius
+    padding: 10,
     marginBottom: 10,
+    width: '80%', // Adjust width as needed
   },
   commentButton: {
     backgroundColor: '#007bff',
+    padding: 10,
     borderRadius: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    alignSelf: 'flex-end',
+    alignItems: 'center',
+    width: '18%', // Adjust width as needed
   },
   commentButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  logoutButton: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    backgroundColor: '#007bff',
-    borderRadius: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  logoutButtonText: {
-    color: '#fff',
-    fontSize: 18,
+    color: '#ffffff',
     fontWeight: 'bold',
+  },
+  comment: {
+    backgroundColor: '#f1f1f1',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 5,
   },
   fab: {
     position: 'absolute',
-    bottom: 20,
-    right: 20,
+    bottom: 30,
+    right: 30,
+    backgroundColor: '#007bff',
     width: 60,
     height: 60,
-    backgroundColor: '#007bff',
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
     elevation: 3,
   },
   fabIcon: {
+    color: '#ffffff',
     fontSize: 30,
-    color: '#fff',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    width: '80%',
-    borderRadius: 10,
-    padding: 20,
-  },
-  input: {
-    height: 100,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 5,
-    marginBottom: 10,
-    paddingHorizontal: 10,
-    fontSize: 16,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  modalButton: {
-    backgroundColor: '#007bff',
-    borderRadius: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginLeft: 10,
-  },
-  modalButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
   },
   profileButton: {
     position: 'absolute',
-    bottom: 20,
-    alignSelf: 'center', // Center horizontally
+    bottom: 30,
+    right: 110, // Adjust right position to move next to FAB
+    padding: 10,
     backgroundColor: '#007bff',
     borderRadius: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
   },
   profileButtonText: {
-    color: '#fff',
-    fontSize: 18,
+    color: '#ffffff',
     fontWeight: 'bold',
+  },
+  logoutButton: {
+    position: 'absolute',
+    bottom: 30,
+    left: 30, // Adjust left position to move next to FAB
+    padding: 10,
+    backgroundColor: '#dc3545',
+    borderRadius: 5,
+  },
+  logoutButtonText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: 300,
+    backgroundColor: '#ffffff',
+    borderRadius: 5,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  input: {
+    borderColor: '#cccccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 10,
+    maxHeight: 150,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  modalButton: {
+    padding: 10,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    color: '#007bff',
   },
   profileModalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   profileModalContent: {
-    backgroundColor: '#fff',
-    width: '80%',
-    borderRadius: 10,
+    width: 300,
+    backgroundColor: '#ffffff',
+    borderRadius: 5,
     padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 3,
   },
   profileHeaderText: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 10,
   },
+  profileInput: {
+    borderColor: '#cccccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 10,
+  },
   profileModalButton: {
+    padding: 10,
     backgroundColor: '#007bff',
     borderRadius: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    alignSelf: 'flex-end',
-    marginTop: 10,
+    alignItems: 'center',
+    marginBottom: 10,
   },
   profileModalButtonText: {
-    color: '#fff',
-    fontSize: 18,
+    color: '#ffffff',
     fontWeight: 'bold',
+  },
+  emojiContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
+  },
+  emojiButton: {
+    padding: 10,
+    borderRadius: 5,
+  },
+  selectedEmojiButton: {
+    backgroundColor: '#007bff',
+  },
+  emoji: {
+    fontSize: 24,
   },
 });
