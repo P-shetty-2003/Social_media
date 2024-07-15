@@ -8,6 +8,7 @@ import {
   TextInput,
   Modal,
   TouchableWithoutFeedback,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -87,6 +88,7 @@ export default function HomeScreen() {
       } catch (error) {
         console.error("Error fetching posts:", error);
         // Handle errors appropriately, like showing an error message
+        Alert.alert("Error", "There was an error fetching posts.");
       }
     };
 
@@ -102,12 +104,10 @@ export default function HomeScreen() {
     }
   };
 
-
-
   const handleToggleLike = async (
     postId: string,
     posts: Post[],
-    setPosts: React.Dispatch<React.SetStateAction<Post[]>>
+    setPosts: React.Dispatch<React.SetStateAction<Post[]>>,
   ) => {
     try {
       // Query Firestore for the document with matching ID
@@ -136,17 +136,14 @@ export default function HomeScreen() {
         prevPosts.map((post) =>
           post.id === postId
             ? { ...post, liked: !liked, likeCount: post.likeCount + likeChange }
-            : post
-        )
+            : post,
+        ),
       );
     } catch (error) {
       console.error("Error updating like:", error);
       // Handle errors appropriately, like showing an error message to the user
     }
   };
-
-
-
 
   const handleAddPost = async () => {
     if (newTweet.trim().length > 0) {
@@ -168,47 +165,86 @@ export default function HomeScreen() {
         setPosts((prevPosts) => [...prevPosts, newPost]);
         setNewTweet("");
         setIsModalVisible(false);
+        Alert.alert("Success", "Post added successfully.");
       } catch (error) {
         console.error("Error adding post:", error);
         // Handle errors appropriately, like showing an error message to the user
+        Alert.alert("Error", "There was an error adding the post.");
       }
     }
   };
 
   const handleDeletePost = async (postId: string) => {
     try {
-      // Get a reference to the post document
-      const postRef = doc(db, "posts", postId);
+      const postsRef = collection(db, "posts");
+      const q = query(postsRef, where("id", "==", postId)); // Filter by author
 
-      // Delete the post from Firestore
-      await deleteDoc(postRef);
+      const querySnapshot = await getDocs(q);
 
-      // Update local state after successful deletion
-      setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
+      querySnapshot.forEach((doc) => {
+        deleteDoc(doc.ref);
+      });
+
+      console.log(`Post (ID: ${postId}) deleted successfully.`);
+      Alert.alert("Success", "Post deleted successfully.");
+      updatePostsLocally(postId); // Update local state
     } catch (error) {
-      console.error("Error deleting post:", error);
-      // Handle errors appropriately, like showing an error message to the user
+      console.error("Error deleting posts by author:", error);
+      // Handle errors appropriately (e.g., notify user)
+      Alert.alert("Error", "There was an error deleting the post.");
     }
   };
 
   const handleAddComment = async (postId: string) => {
     if (commentText.trim().length > 0) {
       try {
-        // Get a reference to the post document
-        const postRef = doc(db, "posts", postId);
+        // Build a query to get the specific post document
+        const postsRef = collection(db, "posts");
+        const q = query(postsRef, where("id", "==", postId));
 
-        // Check if the post document exists
-        const docSnapshot = await getDoc(postRef);
-        if (!docSnapshot.exists) {
+        // Fetch the post document
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
           console.error("Post not found:", postId);
           // Handle the case where the post doesn't exist
           return;
         }
 
-        // ... rest of your updateDoc code for adding the comment
+        // Get the first document (assuming unique ID)
+        const doc = querySnapshot.docs[0].ref;
+
+        // Get the document data (fixes the error)
+        const postData = await getDoc(doc);
+
+        // Get existing comments (optional)
+        const existingComments = postData.data().comments || []; // Handle potential undefined value
+
+        // Update the post document with the new comment
+        await updateDoc(doc, {
+          comments: [...existingComments, commentText],
+        });
+
+        // Update local state to reflect the new comment
+        setPosts((prevPosts) =>
+          prevPosts.map((post) =>
+            post.id === postId
+              ? {
+                ...post,
+                comments: [...post.comments, commentText],
+              }
+              : post,
+          ),
+        );
+
+        // Clear the comment text input
+        setCommentText("");
+
+        console.log("Comment added successfully!");
+        Alert.alert("Success", "Comment added successfully.");
       } catch (error) {
         console.error("Error adding comment:", error);
-        // Handle other errors
+        Alert.alert("Success", "Comment added successfully.");
       }
     }
   };
@@ -224,6 +260,12 @@ export default function HomeScreen() {
   const handleLogout = () => {
     // Implement logout logic here
     setIsMenuOpen(false); // Close the menu after logout
+    Alert.alert("Success", "Logged out successfully.");
+  };
+
+  // Helper function to update local state (assuming it exists)
+  const updatePostsLocally = (postId: string) => {
+    setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
   };
 
   const renderPost = ({ item }: { item: Post }) => (
