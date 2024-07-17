@@ -13,16 +13,17 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import firebase from "firebase/app";
-import { FIREBASE_DB, FIREBASE_APP } from "@/firebase";
+import { FIREBASE_DB } from "@/firebase"; // Assuming FIREBASE_APP is already initialized elsewhere
+
 import {
-  addDoc,
   collection,
+  addDoc,
+  getDocs,
+  updateDoc,
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
   query,
-  updateDoc,
   where,
 } from "firebase/firestore";
 
@@ -43,30 +44,7 @@ interface User {
 }
 
 export default function HomeScreen() {
-  const [posts, setPosts] = useState<Post[]>([
-    {
-      id: "1",
-      content: "Hello World!",
-      liked: false,
-      likeCount: 0,
-      comments: [],
-    },
-    {
-      id: "2",
-      content: "This is a social media app.",
-      liked: false,
-      likeCount: 0,
-      comments: [],
-    },
-    {
-      id: "3",
-      content: "I made an app!",
-      liked: false,
-      likeCount: 0,
-      comments: [],
-    },
-  ]);
-
+  const [posts, setPosts] = useState<Post[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [newTweet, setNewTweet] = useState("");
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -81,14 +59,14 @@ export default function HomeScreen() {
   useEffect(() => {
     const getPosts = async () => {
       const postsRef = collection(db, "posts");
-      const q = query(postsRef); // Optional: Add query filters if needed
+      const q = query(postsRef);
 
       try {
         const querySnapshot = await getDocs(q);
         const fetchedPosts: Post[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data() as Post;
-          fetchedPosts.push(data);
+          fetchedPosts.push({ ...data, id: doc.id });
         });
         setPosts(fetchedPosts);
       } catch (error) {
@@ -140,7 +118,7 @@ export default function HomeScreen() {
       const { liked } = doc.data();
 
       const likeChange = liked ? -1 : 1;
-      const postRef = querySnapshot.docs[0].ref;
+      const postRef = doc.ref;
 
       await updateDoc(postRef, {
         liked: !liked,
@@ -164,19 +142,16 @@ export default function HomeScreen() {
       try {
         const postsRef = collection(db, "posts");
 
-        const newPostId = doc(postsRef).id;
-
         const newPost = {
-          id: newPostId,
           content: newTweet,
           liked: false,
           likeCount: 0,
           comments: [],
         };
 
-        await addDoc(postsRef, newPost);
+        const docRef = await addDoc(postsRef, newPost);
 
-        setPosts((prevPosts) => [...prevPosts, newPost]);
+        setPosts((prevPosts) => [...prevPosts, { ...newPost, id: docRef.id }]);
         setNewTweet("");
         setIsModalVisible(false);
         Alert.alert("Success", "Post added successfully.");
@@ -189,20 +164,15 @@ export default function HomeScreen() {
 
   const handleDeletePost = async (postId: string) => {
     try {
-      const postsRef = collection(db, "posts");
-      const q = query(postsRef, where("id", "==", postId));
+      const postRef = doc(db, "posts", postId);
+      await deleteDoc(postRef);
 
-      const querySnapshot = await getDocs(q);
-
-      querySnapshot.forEach((doc) => {
-        deleteDoc(doc.ref);
-      });
+      setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
 
       console.log(`Post (ID: ${postId}) deleted successfully.`);
       Alert.alert("Success", "Post deleted successfully.");
-      updatePostsLocally(postId);
     } catch (error) {
-      console.error("Error deleting posts by author:", error);
+      console.error("Error deleting post:", error);
       Alert.alert("Error", "There was an error deleting the post.");
     }
   };
@@ -210,23 +180,17 @@ export default function HomeScreen() {
   const handleAddComment = async (postId: string) => {
     if (commentText.trim().length > 0) {
       try {
-        const postsRef = collection(db, "posts");
-        const q = query(postsRef, where("id", "==", postId));
+        const postRef = doc(db, "posts", postId);
+        const postSnapshot = await getDoc(postRef);
 
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
+        if (!postSnapshot.exists()) {
           console.error("Post not found:", postId);
           return;
         }
 
-        const doc = querySnapshot.docs[0].ref;
+        const existingComments = postSnapshot.data()?.comments || [];
 
-        const postData = await getDoc(doc);
-
-        const existingComments = postData.data().comments || [];
-
-        await updateDoc(doc, {
+        await updateDoc(postRef, {
           comments: [...existingComments, commentText],
         });
 
@@ -265,10 +229,6 @@ export default function HomeScreen() {
     Alert.alert("Success", "Logged out successfully.");
   };
 
-  const updatePostsLocally = (postId: string) => {
-    setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
-  };
-
   const handleEditProfile = () => {
     setEditUserData(user);
     setIsEditingProfile(true);
@@ -280,7 +240,7 @@ export default function HomeScreen() {
         const userRef = doc(db, "users", editUserData.id);
         await updateDoc(userRef, editUserData);
         setUser(editUserData);
-        setIsEditingProfile(false);
+        setIsEditingProfile(false); // Close the edit profile modal
         Alert.alert("Success", "Profile updated successfully.");
       } catch (error) {
         console.error("Error updating profile:", error);
@@ -321,32 +281,27 @@ export default function HomeScreen() {
           style={styles.actionButton}
           onPress={() => handleDeletePost(item.id)}
         >
-          <Ionicons name="trash-outline" size={24} color="red" />
+          <Ionicons name="trash-outline" size={24} color="#dc3545" />
         </TouchableOpacity>
       </View>
-
       {selectedPostId === item.id && (
         <View style={styles.commentsContainer}>
-          <FlatList
-            data={item.comments}
-            keyExtractor={(comment, index) => index.toString()}
-            renderItem={({ item: comment }) => (
-              <View style={styles.comment}>
-                <Text>{comment}</Text>
-              </View>
-            )}
-          />
+          {item.comments.map((comment, index) => (
+            <Text key={index} style={styles.comment}>
+              {comment}
+            </Text>
+          ))}
           <TextInput
-            value={commentText}
-            onChangeText={setCommentText}
+            style={styles.input}
             placeholder="Add a comment..."
-            style={styles.commentInput}
+            value={commentText}
+            onChangeText={(text) => setCommentText(text)}
           />
           <TouchableOpacity
-            style={styles.commentButton}
+            style={styles.actionButton}
             onPress={() => handleAddComment(item.id)}
           >
-            <Text style={styles.commentButtonText}>Post</Text>
+            <Text style={styles.actionButtonText}>Post</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -355,56 +310,6 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Home</Text>
-        <TouchableOpacity onPress={toggleMenu} style={styles.profileButton}>
-          <Ionicons name="person-circle-outline" size={40} color="#007bff" />
-        </TouchableOpacity>
-        <Modal
-          visible={isMenuOpen}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={toggleMenu}
-        >
-          <TouchableWithoutFeedback onPress={toggleMenu}>
-            <View style={styles.modalBackground}>
-              <View style={styles.menuContainer}>
-                {user && (
-                  <View style={styles.profileContainer}>
-                    <Ionicons
-                      name="person-circle-outline"
-                      size={40}
-                      color="#007bff"
-                    />
-                    <Text style={styles.userName}>{user.name}</Text>
-                  </View>
-                )}
-                <TouchableOpacity
-                  onPress={handleEditProfile}
-                  style={styles.menuItem}
-                >
-                  <Text style={styles.menuItemText}>Edit Profile</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleLogout} style={styles.menuItem}>
-                  <Text style={styles.menuItemText}>Logout</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      </View>
-      <FlatList
-        data={posts}
-        keyExtractor={(item) => item.id}
-        renderItem={renderPost}
-        contentContainerStyle={styles.postList}
-      />
-      <TouchableOpacity
-        style={styles.addButton}
-        onPress={() => setIsModalVisible(true)}
-      >
-        <Ionicons name="add-circle-outline" size={40} color="#007bff" />
-      </TouchableOpacity>
       <Modal
         visible={isModalVisible}
         animationType="slide"
@@ -415,22 +320,23 @@ export default function HomeScreen() {
           <View style={styles.modalBackground}>
             <View style={styles.modalContainer}>
               <TextInput
-                value={newTweet}
-                onChangeText={setNewTweet}
-                placeholder="What's on your mind?"
                 style={styles.input}
+                placeholder="What's happening?"
+                value={newTweet}
+                onChangeText={(text) => setNewTweet(text)}
                 multiline
               />
               <TouchableOpacity
-                style={styles.postButton}
+                style={styles.saveProfileButton}
                 onPress={handleAddPost}
               >
-                <Text style={styles.postButtonText}>Post</Text>
+                <Text style={styles.saveProfileButtonText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
       <Modal
         visible={isEditingProfile}
         animationType="slide"
@@ -441,41 +347,72 @@ export default function HomeScreen() {
           <View style={styles.modalBackground}>
             <View style={styles.modalContainer}>
               <TextInput
-                value={editUserData?.name || ""}
-                onChangeText={(value) => handleChangeProfile("name", value)}
-                placeholder="Name"
                 style={styles.input}
+                placeholder="Name"
+                value={editUserData?.name.toString()}
+                onChangeText={(text) => handleChangeProfile("name", text)}
               />
               <TextInput
-                value={editUserData?.age.toString() || ""}
-                onChangeText={(value) => handleChangeProfile("age", Number(value))}
-                placeholder="Age"
                 style={styles.input}
+                placeholder="Age"
+                value={editUserData?.age.toString()}
+                onChangeText={(text) =>
+                  handleChangeProfile("age", parseInt(text))
+                }
                 keyboardType="numeric"
               />
               <TextInput
-                value={editUserData?.location || ""}
-                onChangeText={(value) => handleChangeProfile("location", value)}
-                placeholder="Location"
                 style={styles.input}
+                placeholder="Location"
+                value={editUserData?.location.toString()}
+                onChangeText={(text) => handleChangeProfile("location", text)}
               />
               <TextInput
-                value={editUserData?.email || ""}
-                onChangeText={(value) => handleChangeProfile("email", value)}
-                placeholder="Email"
                 style={styles.input}
+                placeholder="Email"
+                value={editUserData?.email.toString()}
+                onChangeText={(text) => handleChangeProfile("email", text)}
                 keyboardType="email-address"
               />
               <TouchableOpacity
-                style={styles.postButton}
+                style={styles.saveProfileButton}
                 onPress={handleSaveProfile}
               >
-                <Text style={styles.postButtonText}>Save</Text>
+                <Text style={styles.saveProfileButtonText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      <View style={styles.header}>
+        <Text style={styles.headerText}>Home</Text>
+        <TouchableOpacity onPress={() => setIsModalVisible(true)}>
+          <Ionicons name="add-circle-outline" size={32} color="#007bff" />
+        </TouchableOpacity>
+      </View>
+
+      <FlatList
+        data={posts}
+        renderItem={renderPost}
+        keyExtractor={(item) => item.id}
+        style={styles.postList}
+      />
+
+      <TouchableOpacity style={styles.menuButton} onPress={toggleMenu}>
+        <Ionicons name="menu-outline" size={32} color="#007bff" />
+      </TouchableOpacity>
+
+      {isMenuOpen && (
+        <View style={styles.menu}>
+          <TouchableOpacity style={styles.menuItem} onPress={handleEditProfile}>
+            <Text>Edit Profile</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+            <Text>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -484,129 +421,105 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+    paddingHorizontal: 20,
+    paddingTop: 40,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
+    marginBottom: 20,
   },
-  title: {
+  headerText: {
     fontSize: 24,
     fontWeight: "bold",
   },
-  profileButton: {
-    padding: 8,
-  },
-  modalBackground: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  menuContainer: {
-    width: 250,
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 16,
-    alignItems: "center",
-  },
-  profileContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  userName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 8,
-  },
-  menuItem: {
-    padding: 12,
-    alignItems: "center",
-  },
-  menuItemText: {
-    fontSize: 16,
-    color: "#007bff",
-  },
   postList: {
-    paddingBottom: 16,
+    flexGrow: 1,
   },
   post: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
+    backgroundColor: "#f0f0f0",
+    padding: 20,
+    borderRadius: 10,
+    marginBottom: 20,
   },
   postActions: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 8,
+    justifyContent: "space-between",
+    marginTop: 10,
   },
   actionButton: {
-    padding: 8,
+    flexDirection: "row",
     alignItems: "center",
   },
   actionButtonText: {
-    fontSize: 16,
-    color: "#007bff",
+    marginLeft: 5,
   },
   commentsContainer: {
-    marginTop: 8,
+    marginTop: 10,
   },
   comment: {
-    backgroundColor: "#f9f9f9",
-    padding: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
+    backgroundColor: "#e0e0e0",
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 5,
   },
-  commentInput: {
-    borderColor: "#ccc",
+  input: {
     borderWidth: 1,
-    borderRadius: 4,
-    padding: 8,
-    marginTop: 8,
+    borderColor: "#ccc",
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 10,
+    width: "100%",
   },
-  commentButton: {
-    backgroundColor: "#007bff",
-    padding: 8,
-    borderRadius: 4,
+  modalBackground: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
-    marginTop: 8,
-  },
-  commentButtonText: {
-    color: "#fff",
-  },
-  addButton: {
-    position: "absolute",
-    bottom: 16,
-    right: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContainer: {
     backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 16,
-    width: 300,
-    alignItems: "center",
+    padding: 20,
+    borderRadius: 10,
+    width: "90%",
+    maxWidth: 400,
   },
-  input: {
-    borderColor: "#ccc",
-    borderWidth: 1,
-    borderRadius: 4,
-    padding: 8,
-    marginBottom: 16,
-    width: "100%",
-  },
-  postButton: {
+  saveProfileButton: {
     backgroundColor: "#007bff",
-    padding: 8,
-    borderRadius: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
     alignItems: "center",
+    marginTop: 10,
     width: "100%",
   },
-  postButtonText: {
+  saveProfileButtonText: {
     color: "#fff",
+    fontSize: 16,
+  },
+  menuButton: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+  },
+  menu: {
+    position: "absolute",
+    bottom: 70,
+    right: 20,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    padding: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.8,
+    shadowRadius: 2,
+    elevation: 5,
+  },
+  menuItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
   },
 });
