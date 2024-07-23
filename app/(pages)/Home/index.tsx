@@ -13,17 +13,20 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import firebase from "firebase/app";
-import { FIREBASE_DB } from "@/firebase"; // Assuming FIREBASE_APP is already initialized elsewhere
-
+import { FIREBASE_DB, FIREBASE_APP } from "@/firebase";
 import {
-  collection,
   addDoc,
-  getDocs,
-  updateDoc,
+  arrayUnion,
+  collection,
   deleteDoc,
   doc,
+  FieldValue,
   getDoc,
+  getDocs,
+  increment,
   query,
+  setDoc,
+  updateDoc,
   where,
 } from "firebase/firestore";
 
@@ -35,38 +38,36 @@ interface Post {
   comments: string[];
 }
 
-interface User {
-  id: string;
-  name: string;
-  age: number;
-  location: string;
-  email: string;
-}
-
 export default function HomeScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [user, setUser] = useState<User | null>(null);
   const [newTweet, setNewTweet] = useState("");
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editUserData, setEditUserData] = useState<User | null>(null);
+  const [profileData, setProfileData] = useState({
+    name: "John Doe",
+    email: "john.doe@example.com",
+    location: "New York, USA",
+    interests: "Programming, Travel",
+    profilePic: "😊", // Default emoji
+  });
+  const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
+
+  const emojis = ["😊", "😎", "🤓", "🤖"];
 
   const db = FIREBASE_DB;
+  const postsRef = collection(db, "posts");
 
   useEffect(() => {
     const getPosts = async () => {
-      const postsRef = collection(db, "posts");
-      const q = query(postsRef);
+      const q = query(postsRef); // Optional: Add query filters if needed
 
       try {
         const querySnapshot = await getDocs(q);
         const fetchedPosts: Post[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data() as Post;
-          fetchedPosts.push({ ...data, id: doc.id });
+          fetchedPosts.push(data);
         });
         setPosts(fetchedPosts);
       } catch (error) {
@@ -75,83 +76,33 @@ export default function HomeScreen() {
       }
     };
 
-    const getUser = async () => {
-      const userRef = doc(db, "users", "currentUserId"); // Replace with actual user ID logic
-      try {
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          setUser(userDoc.data() as User);
-        } else {
-          console.log("No such document!");
-        }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
-      }
-    };
-
     getPosts();
-    getUser();
   }, [db]);
 
-  const toggleLike = async (postId: string) => {
-    try {
-      await handleToggleLike(postId, posts, setPosts);
-    } catch (error) {
-      console.error("Error toggling like:", error);
-    }
-  };
-
-  const handleToggleLike = async (
-    postId: string,
-    posts: Post[],
-    setPosts: React.Dispatch<React.SetStateAction<Post[]>>
-  ) => {
-    try {
-      const q = query(collection(db, "posts"), where("id", "==", postId));
-      const querySnapshot = await getDocs(q);
-
-      if (querySnapshot.empty) {
-        throw new Error("No document found with id: " + postId);
-      }
-
-      const doc = querySnapshot.docs[0];
-      const { liked } = doc.data();
-
-      const likeChange = liked ? -1 : 1;
-      const postRef = doc.ref;
-
-      await updateDoc(postRef, {
-        liked: !liked,
-        likeCount: doc.data().likeCount + likeChange,
-      });
-
-      setPosts((prevPosts) =>
-        prevPosts.map((post) =>
-          post.id === postId
-            ? { ...post, liked: !liked, likeCount: post.likeCount + likeChange }
-            : post
-        )
-      );
-    } catch (error) {
-      console.error("Error updating like:", error);
-    }
+  const toggleLike = (postId: string) => {
+    setPosts((prevPosts) =>
+      prevPosts.map((post) =>
+        post.id === postId ? { ...post, liked: !post.liked } : post
+      )
+    );
   };
 
   const handleAddPost = async () => {
     if (newTweet.trim().length > 0) {
       try {
-        const postsRef = collection(db, "posts");
+        const newPostId = doc(postsRef).id;
 
         const newPost = {
+          id: newPostId,
           content: newTweet,
           liked: false,
           likeCount: 0,
           comments: [],
         };
 
-        const docRef = await addDoc(postsRef, newPost);
+        await addDoc(postsRef, newPost);
 
-        setPosts((prevPosts) => [...prevPosts, { ...newPost, id: docRef.id }]);
+        setPosts((prevPosts) => [...prevPosts, newPost]);
         setNewTweet("");
         setIsModalVisible(false);
         Alert.alert("Success", "Post added successfully.");
@@ -164,15 +115,18 @@ export default function HomeScreen() {
 
   const handleDeletePost = async (postId: string) => {
     try {
-      const postRef = doc(db, "posts", postId);
-      await deleteDoc(postRef);
+      const q = query(postsRef, where("id", "==", postId));
+      const querySnapshot = await getDocs(q);
 
-      setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
+      querySnapshot.forEach((doc) => {
+        deleteDoc(doc.ref);
+      });
 
       console.log(`Post (ID: ${postId}) deleted successfully.`);
       Alert.alert("Success", "Post deleted successfully.");
+      updatePostsLocally(postId);
     } catch (error) {
-      console.error("Error deleting post:", error);
+      console.error("Error deleting posts by author:", error);
       Alert.alert("Error", "There was an error deleting the post.");
     }
   };
@@ -180,17 +134,19 @@ export default function HomeScreen() {
   const handleAddComment = async (postId: string) => {
     if (commentText.trim().length > 0) {
       try {
-        const postRef = doc(db, "posts", postId);
-        const postSnapshot = await getDoc(postRef);
+        const q = query(postsRef, where("id", "==", postId));
+        const querySnapshot = await getDocs(q);
 
-        if (!postSnapshot.exists()) {
+        if (querySnapshot.empty) {
           console.error("Post not found:", postId);
           return;
         }
 
-        const existingComments = postSnapshot.data()?.comments || [];
+        const doc = querySnapshot.docs[0].ref;
+        const postData = await getDoc(doc);
+        const existingComments = postData.data().comments || [];
 
-        await updateDoc(postRef, {
+        await updateDoc(doc, {
           comments: [...existingComments, commentText],
         });
 
@@ -220,200 +176,193 @@ export default function HomeScreen() {
     setSelectedPostId((prevId) => (prevId === postId ? null : postId));
   };
 
-  const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen);
+  const updatePostsLocally = (postId: string) => {
+    setPosts((prevPosts) => prevPosts.filter((post) => post.id !== postId));
   };
 
-  const handleLogout = () => {
-    setIsMenuOpen(false);
-    Alert.alert("Success", "Logged out successfully.");
+  const handleProfileUpdate = async () => {
+    setIsProfileModalVisible(false);
+    Alert.alert("Success", "Profile updated successfully.");
   };
-
-  const handleEditProfile = () => {
-    setEditUserData(user);
-    setIsEditingProfile(true);
-  };
-
-  const handleSaveProfile = async () => {
-    if (editUserData) {
-      try {
-        const userRef = doc(db, "users", editUserData.id);
-        await updateDoc(userRef, editUserData);
-        setUser(editUserData);
-        setIsEditingProfile(false); // Close the edit profile modal
-        Alert.alert("Success", "Profile updated successfully.");
-      } catch (error) {
-        console.error("Error updating profile:", error);
-        Alert.alert("Error", "There was an error updating the profile.");
-      }
-    }
-  };
-
-  const handleChangeProfile = (key: keyof User, value: string | number) => {
-    if (editUserData) {
-      setEditUserData({ ...editUserData, [key]: value });
-    }
-  };
-
-  const renderPost = ({ item }: { item: Post }) => (
-    <View style={styles.post}>
-      <Text>{item.content}</Text>
-      <View style={styles.postActions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => toggleLike(item.id)}
-        >
-          <Text style={styles.actionButtonText}>
-            {item.liked ? "❤️" : "🤍"} {item.likeCount}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => toggleComments(item.id)}
-        >
-          <Ionicons
-            name="chatbubble-ellipses-outline"
-            size={24}
-            color="#007bff"
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleDeletePost(item.id)}
-        >
-          <Ionicons name="trash-outline" size={24} color="#dc3545" />
-        </TouchableOpacity>
-      </View>
-      {selectedPostId === item.id && (
-        <View style={styles.commentsContainer}>
-          {item.comments.map((comment, index) => (
-            <Text key={index} style={styles.comment}>
-              {comment}
-            </Text>
-          ))}
-          <TextInput
-            style={styles.input}
-            placeholder="Add a comment..."
-            value={commentText}
-            onChangeText={(text) => setCommentText(text)}
-          />
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleAddComment(item.id)}
-          >
-            <Text style={styles.actionButtonText}>Post</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
 
   return (
-    <View style={styles.container}>
-      <Modal
-        visible={isModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsModalVisible(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setIsModalVisible(false)}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="What's happening?"
-                value={newTweet}
-                onChangeText={(text) => setNewTweet(text)}
-                multiline
-              />
-              <TouchableOpacity
-                style={styles.saveProfileButton}
-                onPress={handleAddPost}
-              >
-                <Text style={styles.saveProfileButtonText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      <Modal
-        visible={isEditingProfile}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsEditingProfile(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setIsEditingProfile(false)}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Name"
-                value={editUserData?.name.toString()}
-                onChangeText={(text) => handleChangeProfile("name", text)}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Age"
-                value={editUserData?.age.toString()}
-                onChangeText={(text) =>
-                  handleChangeProfile("age", parseInt(text))
-                }
-                keyboardType="numeric"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Location"
-                value={editUserData?.location.toString()}
-                onChangeText={(text) => handleChangeProfile("location", text)}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                value={editUserData?.email.toString()}
-                onChangeText={(text) => handleChangeProfile("email", text)}
-                keyboardType="email-address"
-              />
-              <TouchableOpacity
-                style={styles.saveProfileButton}
-                onPress={handleSaveProfile}
-              >
-                <Text style={styles.saveProfileButtonText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Home</Text>
-        <TouchableOpacity onPress={() => setIsModalVisible(true)}>
-          <Ionicons name="add-circle-outline" size={32} color="#007bff" />
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item) => item.id}
-        style={styles.postList}
-      />
-
-      <TouchableOpacity style={styles.menuButton} onPress={toggleMenu}>
-        <Ionicons name="menu-outline" size={32} color="#007bff" />
-      </TouchableOpacity>
-
-      {isMenuOpen && (
-        <View style={styles.menu}>
-          <TouchableOpacity style={styles.menuItem} onPress={handleEditProfile}>
-            <Text>Edit Profile</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-            <Text>Logout</Text>
-          </TouchableOpacity>
+    <TouchableWithoutFeedback onPress={() => setIsMenuOpen(false)}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Ionicons
+            name="person-circle-outline"
+            size={32}
+            color="black"
+            onPress={() => setIsProfileModalVisible(true)}
+          />
+          <Text style={styles.headerText}>Nebula</Text>
         </View>
-      )}
-    </View>
+
+        <FlatList
+          style={styles.postsList}
+          data={posts}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View style={styles.postContainer}>
+              <View style={styles.postHeader}>
+                <Text style={styles.postAuthor}>{profileData.name}</Text>
+                <Text style={styles.postTime}>Just now</Text>
+              </View>
+              <Text style={styles.postContent}>{item.content}</Text>
+              <View style={styles.postActions}>
+                <TouchableOpacity
+                  style={styles.postActionButton}
+                  onPress={() => toggleLike(item.id)}
+                >
+                  <Ionicons
+                    name={item.liked ? "heart" : "heart-outline"}
+                    size={24}
+                    color={item.liked ? "red" : "black"}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.postActionButton}
+                  onPress={() => toggleComments(item.id)}
+                >
+                  <Ionicons name="chatbox-outline" size={24} color="black" />
+                  <Text style={styles.actionButtonText}>
+                    {item.comments.length}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => handleDeletePost(item.id)}
+                >
+                  <Ionicons name="trash-outline" size={24} color="black" />
+                </TouchableOpacity>
+              </View>
+              {selectedPostId === item.id && (
+                <View style={styles.commentsContainer}>
+                  <FlatList
+                    data={item.comments}
+                    keyExtractor={(comment) => comment}
+                    renderItem={({ item }) => (
+                      <View style={styles.commentContainer}>
+                        <Text style={styles.commentText}>{item}</Text>
+                      </View>
+                    )}
+                  />
+                  <TextInput
+                    style={styles.commentInput}
+                    placeholder="Add a comment..."
+                    value={commentText}
+                    onChangeText={(text) => setCommentText(text)}
+                    onSubmitEditing={() => handleAddComment(item.id)}
+                  />
+                </View>
+              )}
+            </View>
+          )}
+        />
+
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => setIsModalVisible(true)}
+        >
+          <Ionicons name="add" size={32} color="white" />
+        </TouchableOpacity>
+
+        <Modal visible={isModalVisible} animationType="slide">
+          <View style={styles.modalContainer}>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="What's on your mind?"
+              multiline
+              numberOfLines={4}
+              value={newTweet}
+              onChangeText={(text) => setNewTweet(text)}
+            />
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleAddPost}
+            >
+              <Text style={styles.buttonText}>Post</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setIsModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+
+        <Modal visible={isProfileModalVisible} animationType="slide">
+          <View style={styles.modalContainer}>
+            <Text style={styles.profileTitle}>Update Profile</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Name"
+              value={profileData.name}
+              onChangeText={(text) =>
+                setProfileData((prevData) => ({ ...prevData, name: text }))
+              }
+            />
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Email"
+              value={profileData.email}
+              onChangeText={(text) =>
+                setProfileData((prevData) => ({ ...prevData, email: text }))
+              }
+            />
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Location"
+              value={profileData.location}
+              onChangeText={(text) =>
+                setProfileData((prevData) => ({ ...prevData, location: text }))
+              }
+            />
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Interests"
+              value={profileData.interests}
+              onChangeText={(text) =>
+                setProfileData((prevData) => ({ ...prevData, interests: text }))
+              }
+            />
+            <Text style={styles.emojiTitle}>Select Profile Emoji:</Text>
+            <View style={styles.emojiContainer}>
+              {emojis.map((emoji, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.emojiButton,
+                    emoji === profileData.profilePic && styles.selectedEmoji,
+                  ]}
+                  onPress={() =>
+                    setProfileData((prevData) => ({
+                      ...prevData,
+                      profilePic: emoji,
+                    }))
+                  }
+                >
+                  <Text style={styles.emoji}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleProfileUpdate}
+            >
+              <Text style={styles.buttonText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setIsProfileModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -421,36 +370,50 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
-    paddingHorizontal: 20,
-    paddingTop: 40,
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    justifyContent: "space-between",
+    padding: 20,
+    backgroundColor: "#f8f8f8",
   },
   headerText: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "bold",
   },
-  postList: {
-    flexGrow: 1,
+  postsList: {
+    flex: 1,
   },
-  post: {
-    backgroundColor: "#f0f0f0",
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 20,
+  postContainer: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  postHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  postAuthor: {
+    fontWeight: "bold",
+  },
+  postTime: {
+    color: "#999",
+  },
+  postContent: {
+    marginBottom: 10,
   },
   postActions: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 10,
   },
-  actionButton: {
+  postActionButton: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  deleteButton: {
+    marginLeft: 10,
   },
   actionButtonText: {
     marginLeft: 5,
@@ -458,68 +421,86 @@ const styles = StyleSheet.create({
   commentsContainer: {
     marginTop: 10,
   },
-  comment: {
-    backgroundColor: "#e0e0e0",
+  commentContainer: {
     padding: 10,
+    backgroundColor: "#f8f8f8",
     borderRadius: 5,
     marginBottom: 5,
   },
-  input: {
+  commentText: {
+    color: "#333",
+  },
+  commentInput: {
+    height: 40,
+    borderColor: "#ddd",
     borderWidth: 1,
-    borderColor: "#ccc",
     borderRadius: 5,
-    padding: 10,
-    marginBottom: 10,
-    width: "100%",
-  },
-  modalBackground: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  modalContainer: {
-    backgroundColor: "#fff",
-    padding: 20,
-    borderRadius: 10,
-    width: "90%",
-    maxWidth: 400,
-  },
-  saveProfileButton: {
-    backgroundColor: "#007bff",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-    alignItems: "center",
+    paddingHorizontal: 10,
     marginTop: 10,
-    width: "100%",
   },
-  saveProfileButtonText: {
-    color: "#fff",
-    fontSize: 16,
-  },
-  menuButton: {
+  fab: {
     position: "absolute",
     bottom: 20,
     right: 20,
+    backgroundColor: "#007bff",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 8,
   },
-  menu: {
-    position: "absolute",
-    bottom: 70,
-    right: 20,
-    backgroundColor: "#fff",
-    borderRadius: 10,
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalInput: {
+    width: "100%",
+    borderColor: "#ddd",
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderRadius: 5,
     padding: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.8,
-    shadowRadius: 2,
-    elevation: 5,
+    marginBottom: 10,
   },
-  menuItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+  modalButton: {
+    backgroundColor: "#007bff",
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+    width: "100%",
+    alignItems: "center",
+  },
+  buttonText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  profileTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 20,
+  },
+  emojiTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  emojiContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  emojiButton: {
+    marginHorizontal: 10,
+    padding: 10,
+    borderRadius: 5,
+  },
+  selectedEmoji: {
+    backgroundColor: "#eee",
+  },
+  emoji: {
+    fontSize: 24,
   },
 });
